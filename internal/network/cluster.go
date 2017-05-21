@@ -2,7 +2,7 @@ package network
 
 import (
 	"bytes"
-	"encoding/binary"
+	"encoding/gob"
 	"fmt"
 	"github.com/araframework/aradg/internal/consts"
 	"github.com/araframework/aradg/internal/utils/conf"
@@ -18,11 +18,21 @@ type Cluster struct {
 	startTime int64
 }
 
+// request for join and cluster members
 type Data struct {
-	Magic  uint16
-	Leader bool
+	Magic     uint16
+	Leader    bool
+	StartTime int64
+	Members   []Member
 }
 
+type Member struct {
+	Leader    bool
+	StartTime int64
+	Interface string
+}
+
+// new Cluster instance
 func NewCluster() *Cluster {
 	c := &Cluster{}
 	c.option = conf.LoadCluster()
@@ -34,10 +44,18 @@ func NewCluster() *Cluster {
 	return c
 }
 
+// start this Cluster
 func (c *Cluster) Start() {
 	go c.listen()
 	time.Sleep(time.Second)
 	go c.join()
+}
+
+// stop this cluster
+func (c *Cluster) Stop() {
+	if c.listener != nil {
+		c.listener.Close()
+	}
 }
 
 func (c *Cluster) listen() {
@@ -56,6 +74,7 @@ func (c *Cluster) listen() {
 
 func (c *Cluster) join() {
 	for _, value := range c.option.Network.Join["tcp-ip"] {
+		// skip self
 		if value == c.option.Network.Interface {
 			//continue
 		}
@@ -64,32 +83,29 @@ func (c *Cluster) join() {
 			log.Fatal(err)
 		}
 
-		buf := new(bytes.Buffer)
-		err = binary.Write(buf, binary.LittleEndian, Data{consts.CmdMagic, true})
+		var buf bytes.Buffer
+		memberSelf := Member{false, c.startTime, c.option.Network.Interface}
+		data := Data{consts.CmdMagic, false, c.startTime, []Member{memberSelf}}
+		enc := gob.NewEncoder(&buf) // Will write to network.
+
+		// Encode (send) some values.
+		err = enc.Encode(data)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal("encode error:", err)
 		}
 		conn.Write(buf.Bytes())
 	}
 }
 
-func (c *Cluster) Stop() {
-	if c.listener != nil {
-		c.listener.Close()
-	}
-}
-
 func (c *Cluster) handleConnection(conn net.Conn) {
-	//d := Data{}
-	d := make([]byte, 8)
-	i, err := conn.Read(d)
-	fmt.Println(i, err)
-	//err := binary.Read(conn, binary.LittleEndian, d)
-	//fmt.Println("read done")
-	//if err != nil {
-	//	fmt.Println("binary.Read failed:", err)
-	//}
+	d := Data{}
+	dec := gob.NewDecoder(conn) // Will read from network.
+	err := dec.Decode(&d)
+	if err != nil {
+		log.Fatal("decode error 1:", err)
+	}
+	fmt.Printf("%q: {%d, %d}\n", d.StartTime, d.Leader, d.Magic)
 
-	fmt.Printf("bin:% x\n", d)
+	fmt.Printf("bin:%v\n", d)
 	conn.Close()
 }
