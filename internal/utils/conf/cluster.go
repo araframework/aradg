@@ -14,10 +14,10 @@ type Cluster struct {
 }
 
 // load conf
-func load() (*Cluster, error) {
+func loadClusterConf() (*Cluster, error) {
 
 	// load conf
-	file, err := os.Open("conf/application.json")
+	file, err := os.Open("conf/cluster.json")
 	if err != nil {
 		return nil, err
 	}

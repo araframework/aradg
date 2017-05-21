@@ -14,7 +14,7 @@ type Application struct {
 }
 
 // load conf
-func load() (*Application, error) {
+func loadApplicationConf() (*Application, error) {
 
 	// load conf
 	file, err := os.Open("conf/application.json")
