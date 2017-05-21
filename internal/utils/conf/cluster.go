@@ -2,31 +2,41 @@ package conf
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
-type Cluster struct {
-	Hostname        string `json:"hostname"`
-	ListenInterface string `json:"listen_interface"`
-	PrivateKeyFile  string `json:"private_key_file"`
-	PublicKeyFile   string `json:"public_key_file"`
-	LogFile         string `json:"log_file"`
+type ClusterOption struct {
+	Network Network `json:"network"`
 }
 
-// load conf
-func loadClusterConf() (*Cluster, error) {
+type Network struct {
+	Interface string              `json:"interface"`
+	Join      map[string][]string `json:"join"`
+}
 
-	// load conf
+var option *ClusterOption
+
+// load conf
+func LoadCluster() *ClusterOption {
+	if option != nil {
+		return option
+	}
+
 	file, err := os.Open("conf/cluster.json")
 	if err != nil {
-		return nil, err
+		fmt.Println(err)
+		return nil
 	}
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
-	cluster := &Cluster{}
-	err = decoder.Decode(cluster)
+	option = &ClusterOption{}
+	err = decoder.Decode(option)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
 	// TODO check all fields valid
-	// TODO check not empty, valid interface, valid key file, valid log file path etc.
-	return cluster, err
+	return option
 }
