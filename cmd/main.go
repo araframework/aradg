@@ -15,11 +15,11 @@ func main() {
 
 	fmt.Println("Starting Ara DG...")
 
-	cluster := network.NewCluster()
-	cluster.Start()
+	node := network.NewNode()
+	node.Start()
 
 	s := <-sc
-	cluster.Stop()
+	node.Stop()
 	log.Printf("Got signal %s, I will cleanup and exit now\n", s)
 	os.Exit(0)
 }

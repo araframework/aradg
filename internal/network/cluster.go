@@ -4,61 +4,56 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
-	"github.com/araframework/aradg/internal/consts"
+	"github.com/araframework/aradg/internal/consts/status"
 	"github.com/araframework/aradg/internal/utils/conf"
 	"log"
 	"net"
 	"time"
 )
 
-type Cluster struct {
-	listener  net.Listener
-	option    *conf.ClusterOption
-	leader    bool
-	startTime int64
-}
-
-// request for join and cluster members
-type Data struct {
-	Magic     uint16
-	Leader    bool
-	StartTime int64
-	Members   []Member
-}
-
-type Member struct {
-	Leader    bool
-	StartTime int64
-	Interface string
+type Node struct {
+	// configurations
+	option   *conf.ClusterOption
+	listener net.Listener
+	// self
+	me *Member
+	// latest cluster info
+	cluster *Cluster
+	// connection to leader
+	leaderConn net.Conn
 }
 
 // new Cluster instance
-func NewCluster() *Cluster {
-	c := &Cluster{}
+func NewNode() *Node {
+	c := &Node{}
 	c.option = conf.LoadCluster()
 	if c.option == nil {
 		log.Fatal("Initialize conf failed.")
 	}
-	c.leader = false
-	c.startTime = time.Now().UnixNano()
+
+	c.me = &Member{status.New, time.Now().UnixNano(), c.option.Network.Interface}
 	return c
 }
 
 // start this Cluster
-func (c *Cluster) Start() {
+func (c *Node) Start() {
 	go c.listen()
 	time.Sleep(time.Second)
 	go c.join()
 }
 
 // stop this cluster
-func (c *Cluster) Stop() {
+func (c *Node) Stop() {
 	if c.listener != nil {
 		c.listener.Close()
 	}
+
+	if c.leaderConn != nil {
+		c.leaderConn.Close()
+	}
 }
 
-func (c *Cluster) listen() {
+func (c *Node) listen() {
 	listener, err := net.Listen("tcp", c.option.Network.Interface)
 	if err != nil {
 		log.Fatal(err)
@@ -72,7 +67,7 @@ func (c *Cluster) listen() {
 	}
 }
 
-func (c *Cluster) join() {
+func (c *Node) join() {
 	for _, value := range c.option.Network.Join["tcp-ip"] {
 		// skip self
 		if value == c.option.Network.Interface {
@@ -84,12 +79,8 @@ func (c *Cluster) join() {
 		}
 
 		var buf bytes.Buffer
-		memberSelf := Member{false, c.startTime, c.option.Network.Interface}
-		data := Data{consts.CmdMagic, false, c.startTime, []Member{memberSelf}}
-		enc := gob.NewEncoder(&buf) // Will write to network.
-
-		// Encode (send) some values.
-		err = enc.Encode(data)
+		enc := gob.NewEncoder(&buf)
+		err = enc.Encode(newJoin(c.me))
 		if err != nil {
 			log.Fatal("encode error:", err)
 		}
@@ -97,15 +88,35 @@ func (c *Cluster) join() {
 	}
 }
 
-func (c *Cluster) handleConnection(conn net.Conn) {
-	d := Data{}
-	dec := gob.NewDecoder(conn) // Will read from network.
-	err := dec.Decode(&d)
+func (c *Node) handleConnection(conn net.Conn) {
+	d, err := read(conn)
 	if err != nil {
-		log.Fatal("decode error 1:", err)
+		log.Panicln("decode error:", err)
+		// TODO handle read err
 	}
-	fmt.Printf("%q: {%d, %d}\n", d.StartTime, d.Leader, d.Magic)
 
-	fmt.Printf("bin:%v\n", d)
+	// old node will be leader
+	if c.me.StartTime < d.Me.StartTime {
+		c.me.Status = status.Leader
+	} else {
+		c.me.Status = status.Member
+	}
+
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err = enc.Encode(c)
+	if err != nil {
+		log.Fatal("encode error:", err)
+	}
+	conn.Write(buf.Bytes())
 	conn.Close()
+}
+
+func read(conn net.Conn) (CmdJoin, error) {
+	cmd := CmdJoin{}
+	dec := gob.NewDecoder(conn)
+	// Will read from network.
+	err := dec.Decode(&cmd)
+	fmt.Printf("bin:%d\n", cmd)
+	return cmd, err
 }
