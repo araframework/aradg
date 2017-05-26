@@ -3,7 +3,20 @@ package network
 import (
 	"github.com/araframework/aradg/internal/consts"
 	"github.com/araframework/aradg/internal/consts/code"
+	"bytes"
 )
+
+// command struct
+type Cmd struct {
+	Magic   uint16
+	Code    consts.Code
+}
+
+type CmdWrap struct {
+	Magic   uint16
+	Code    consts.Code
+	Buff *bytes.Buffer
+}
 
 type Member struct {
 	Status    consts.Status
@@ -11,13 +24,17 @@ type Member struct {
 	Interface string
 }
 
-// command struct
 type Cluster struct {
-	Magic   uint16
-	Code    consts.Code
+	Cmd
 	Members []Member
 }
 
-func newJoin(me Member) *Cluster {
-	return &Cluster{consts.Magic, code.Join, []Member{me}}
+type CmdJoin struct {
+	Magic   uint16
+	Code    consts.Code
+	Member Member
+}
+
+func newCmdJoin(me Member) *CmdJoin {
+	return &CmdJoin{consts.Magic, code.Join,me}
 }

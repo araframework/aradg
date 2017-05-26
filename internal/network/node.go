@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"time"
+	"github.com/araframework/aradg/internal/consts/code"
 )
 
 type Node struct {
@@ -16,7 +17,7 @@ type Node struct {
 	option   *conf.ClusterOption
 	listener net.Listener
 	// self
-	me *Member
+	me Member
 	// latest cluster info
 	cluster *Cluster
 	// connection to leader
@@ -31,11 +32,11 @@ func NewNode() *Node {
 		log.Fatal("Initialize conf failed.")
 	}
 
-	c.me = &Member{status.New, time.Now().UnixNano(), c.option.Network.Interface}
+	c.me = Member{status.New, time.Now().UnixNano(), c.option.Network.Interface}
 	return c
 }
 
-// start this Cluster
+// start this node
 func (c *Node) Start() {
 	go c.listen()
 	time.Sleep(time.Second)
@@ -58,6 +59,7 @@ func (c *Node) listen() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	c.listener = listener
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -80,7 +82,11 @@ func (c *Node) join() {
 
 		var buf bytes.Buffer
 		enc := gob.NewEncoder(&buf)
-		err = enc.Encode(newJoin(c.me))
+		cmdJoin := newCmdJoin(c.me)
+		fmt.Printf("cmdJoin:%v\n", cmdJoin)
+		err = enc.Encode(cmdJoin)
+		fmt.Printf("node:%v\n", c)
+		fmt.Printf("me:%v\n", c.me)
 		if err != nil {
 			log.Fatal("encode error:", err)
 		}
@@ -89,34 +95,39 @@ func (c *Node) join() {
 }
 
 func (c *Node) handleConnection(conn net.Conn) {
-	d, err := read(conn)
+	cmd, err := read(conn)
 	if err != nil {
 		log.Panicln("decode error:", err)
 		// TODO handle read err
 	}
 
-	// old node will be leader
-	if c.me.StartTime < d.Me.StartTime {
-		c.me.Status = status.Leader
-	} else {
-		c.me.Status = status.Member
+	switch cmd.Code {
+	case code.Join:
+		fmt.Println(cmd)
 	}
 
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	err = enc.Encode(c)
-	if err != nil {
-		log.Fatal("encode error:", err)
-	}
-	conn.Write(buf.Bytes())
-	conn.Close()
+	// old node will be leader
+	//if c.me.StartTime < cmd {
+	//	c.me.Status = status.Leader
+	//} else {
+	//	c.me.Status = status.Member
+	//}
+	//
+	//var buf bytes.Buffer
+	//enc := gob.NewEncoder(&buf)
+	//err = enc.Encode(c)
+	//if err != nil {
+	//	log.Fatal("encode error:", err)
+	//}
+	//conn.Write(buf.Bytes())
+	//conn.Close()
 }
 
-func read(conn net.Conn) (CmdJoin, error) {
-	cmd := CmdJoin{}
+func read(conn net.Conn) (*CmdWrap, error) {
+	cmd := &CmdWrap{}
 	dec := gob.NewDecoder(conn)
 	// Will read from network.
-	err := dec.Decode(&cmd)
-	fmt.Printf("bin:%d\n", cmd)
+	err := dec.Decode(cmd)
+	fmt.Printf("bin:%v\n", cmd)
 	return cmd, err
 }
