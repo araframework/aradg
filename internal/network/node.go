@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"github.com/araframework/aradg/internal/consts/code"
 	"github.com/araframework/aradg/internal/consts/status"
 	"github.com/araframework/aradg/internal/utils/conf"
 	"log"
 	"net"
 	"time"
-	"github.com/araframework/aradg/internal/consts/code"
 )
 
 type Node struct {
@@ -32,7 +32,9 @@ func NewNode() *Node {
 		log.Fatal("Initialize conf failed.")
 	}
 
-	c.me = Member{status.New, time.Now().UnixNano(), c.option.Network.Interface}
+	ip := net.ParseIP(c.option.Network.Listen.Ip)
+	port := c.option.Network.Listen.Port
+	c.me = Member{status.New, time.Now().UnixNano(), ip, port}
 	return c
 }
 
@@ -55,7 +57,8 @@ func (c *Node) Stop() {
 }
 
 func (c *Node) listen() {
-	listener, err := net.Listen("tcp", c.option.Network.Interface)
+	laddr := c.option.Network.Listen.Ip + ":" + string(c.option.Network.Listen.Port)
+	listener, err := net.Listen("tcp", laddr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -70,12 +73,18 @@ func (c *Node) listen() {
 }
 
 func (c *Node) join() {
-	for _, value := range c.option.Network.Join["tcp-ip"] {
-		// skip self
-		if value == c.option.Network.Interface {
+	timeout := c.option.Network.Members.Timeout
+	for _, addr := range c.option.Network.Members.Init {
+		ip := net.ParseIP(addr.Ip)
+		if ip == nil || bytes.Equal(ip, c.me.Ip) {
+			// TODO skip self
 			//continue
 		}
-		conn, err := net.Dial("tcp", value)
+
+		// remote address
+		raddr := addr.Ip + ":" + string(addr.Port)
+		duration := time.Millisecond * time.Duration(timeout)
+		conn, err := net.DialTimeout("tcp", raddr, duration)
 		if err != nil {
 			log.Fatal(err)
 		}

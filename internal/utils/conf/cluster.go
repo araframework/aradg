@@ -11,8 +11,19 @@ type ClusterOption struct {
 }
 
 type Network struct {
-	Interface string              `json:"interface"`
-	Join      map[string][]string `json:"join"`
+	Listen  Addr    `json:"listen"`
+	Members Members `json:"members"`
+}
+
+type Members struct {
+	Type    string `json:"type"`
+	Timeout uint   `json:"timeout"`
+	Init    []Addr `json:"init"`
+}
+
+type Addr struct {
+	Ip   string
+	Port uint16
 }
 
 var option *ClusterOption
