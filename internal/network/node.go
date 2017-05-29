@@ -9,6 +9,9 @@ import (
 	"net"
 	"strconv"
 	"time"
+	"io"
+	"github.com/araframework/aradg/internal/consts"
+	"encoding/binary"
 )
 
 type Node struct {
@@ -38,46 +41,46 @@ func NewNode() *Node {
 }
 
 // start this node
-func (c *Node) Start() {
-	go c.listen()
+func (node *Node) Start() {
+	go node.listen()
 	time.Sleep(time.Second)
-	go c.join()
+	go node.join()
 }
 
 // stop this cluster
-func (c *Node) Stop() {
-	if c.listener != nil {
-		c.listener.Close()
+func (node *Node) Stop() {
+	if node.listener != nil {
+		node.listener.Close()
 	}
 
-	if c.leaderConn != nil {
-		c.leaderConn.Close()
+	if node.leaderConn != nil {
+		node.leaderConn.Close()
 	}
 }
 
-func (c *Node) listen() {
-	port := strconv.FormatUint(uint64(c.option.Network.Listen.Port), 10)
-	laddr := c.option.Network.Listen.Ip + ":" + port
+func (node *Node) listen() {
+	port := strconv.FormatUint(uint64(node.option.Network.Listen.Port), 10)
+	laddr := node.option.Network.Listen.Ip + ":" + port
 	fmt.Println("Starting ", laddr)
 	listener, err := net.Listen("tcp", laddr)
 	if err != nil {
 		log.Fatal(err)
 	}
-	c.listener = listener
+	node.listener = listener
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Fatal(err)
 		}
-		go c.handleConnection(conn)
+		go node.handleConnection(conn)
 	}
 }
 
-func (c *Node) join() {
-	timeout := c.option.Network.Members.Timeout
-	for _, addr := range c.option.Network.Members.Init {
+func (node *Node) join() {
+	timeout := node.option.Network.Members.Timeout
+	for _, addr := range node.option.Network.Members.Init {
 		ip := net.ParseIP(addr.Ip)
-		if ip == nil || bytes.Equal(ip, c.me.Ip) {
+		if ip == nil || bytes.Equal(ip, node.me.Ip) {
 			// TODO skip self
 			//continue
 		}
@@ -96,7 +99,7 @@ func (c *Node) join() {
 		}
 
 		// send join request
-		cmdJoin := newCmdJoin(c.me).encode()
+		cmdJoin := NewCmdJoin(node.me)
 		fmt.Printf("cmdJoin:%x\n", cmdJoin)
 		conn.Write(cmdJoin)
 
@@ -106,13 +109,20 @@ func (c *Node) join() {
 		// Start a goroutine to read from our net connection
 		go func(ch chan []byte, eCh chan error) {
 			for {
+
 				// try to read the data
-				buff := make([]byte, 30)
-				_, err := conn.Read(buff)
-				fmt.Println(":::", buff)
+				buff := make([]byte, 8)
+				n, err := conn.Read(buff)
+				fmt.Println("frome server: ", n)
 				if err != nil {
 					// send an error if it's encountered
+					fmt.Println(err)
 					eCh <- err
+					return
+				}
+
+				if n <= 0 {
+					eCh <- io.EOF
 					return
 				}
 				// send data if we read some.
@@ -120,17 +130,21 @@ func (c *Node) join() {
 			}
 		}(ch, eCh)
 
-		ticker := time.Tick(time.Second)
+		ticker := time.Tick(time.Second * 10)
 		// continuously read from the connection
+
+		bodyBuf := bytes.NewBuffer(make([]byte, 0))
 		for {
 			select {
 			// This case means we recieved data on the connection
 			case data := <-ch:
-				fmt.Printf("received 1:%x\n", data)
+				fmt.Printf("from ch:%x\n", data)
+				bodyBuf.Write(data)
+				fmt.Printf("from buf:%x\n", bodyBuf)
 				// Do something with the data
 				// This case means we got an error and the goroutine has finished
 			case err := <-eCh:
-				fmt.Printf("err 1:%x\n", err)
+				fmt.Printf("eCh:%x\n", err)
 				// handle our error then exit for loop
 				break
 				// This will timeout on the read.
@@ -141,35 +155,77 @@ func (c *Node) join() {
 			}
 		}
 
+		fmt.Printf("Done: %x\n", bodyBuf)
+
 		conn.Close()
 	}
 }
 
-func (c *Node) handleConnection(conn net.Conn) {
+func (node *Node) handleConnection(conn net.Conn) {
+	buff := bytes.NewBuffer(nil)
+	var buf [8]byte
+	first := true
+	var len, bodyLen, totalLen uint32 = 0, 0, 0
+	for {
+		n, err := conn.Read(buf[0:])
+		if err != nil {
+			if err == io.EOF {
+				log.Println("connection closed by remote")
+			}
+			break
+		}
 
-	fmt.Println("got 2 ", conn.RemoteAddr().String())
-	buff := make([]byte, 30)
-	_, err := conn.Read(buff)
-	fmt.Printf("fff:%v\n", buff)
-	if err != nil {
-		log.Fatal(err)
+		len += uint32(n)
+		buff.Write(buf[0:n])
+
+		if first {
+			first = false
+			if buff.Len() < 7 {
+				log.Println("Invalid len:", n)
+				break
+			}
+			magic := binary.LittleEndian.Uint16(buff.Bytes()[:2])
+			if magic != consts.Magic {
+				log.Println("Invalid message")
+				break
+			}
+			bodyLen = binary.LittleEndian.Uint32(buff.Bytes()[3:7])
+			totalLen = bodyLen + 7
+		}
+
+		// reached the msg end
+		if len >= totalLen {
+			buff.Truncate(int(totalLen)) // TODO uint32 to int?
+			go node.handleMessage(conn, buff.Bytes())
+
+			// reset for next msg
+			len, bodyLen = 0, 0
+			first = true
+			buff.Reset()
+
+			if len > totalLen {
+				buff.Write(buf[(uint32(n) - (len - totalLen)):])
+			}
+		}
 	}
-	fmt.Printf("received:%x\n", buff)
-	conn.Write([]byte{1, 2, 3})
 
 	// old node will be leader
-	//if c.me.StartTime < cmd {
-	//	c.me.Status = status.Leader
+	//if node.me.StartTime < cmd {
+	//	node.me.Status = status.Leader
 	//} else {
-	//	c.me.Status = status.Member
+	//	node.me.Status = status.Member
 	//}
 	//
 	//var buf bytes.Buffer
 	//enc := gob.NewEncoder(&buf)
-	//err = enc.Encode(c)
+	//err = enc.Encode(node)
 	//if err != nil {
 	//	log.Fatal("encode error:", err)
 	//}
 	//conn.Write(buf.Bytes())
 	//conn.Close()
+}
+func (node *Node) handleMessage(conn net.Conn, msg []byte) {
+	fmt.Printf("handleMessage %x\n", msg)
+	conn.Write([]byte{0xaa, 0xBB, 0xCC})
 }
