@@ -13,7 +13,6 @@ type CmdHeader struct {
 	// uint16
 	Magic []byte
 	Code  byte
-	BodyLen uint32
 }
 
 type Member struct {
