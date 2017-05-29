@@ -11,6 +11,7 @@ import (
 	"time"
 	"io"
 	"github.com/araframework/aradg/internal/consts"
+	"github.com/araframework/aradg/internal/consts/code"
 	"encoding/binary"
 )
 
@@ -228,4 +229,16 @@ func (node *Node) handleConnection(conn net.Conn) {
 func (node *Node) handleMessage(conn net.Conn, msg []byte) {
 	fmt.Printf("handleMessage %x\n", msg)
 	conn.Write([]byte{0xaa, 0xBB, 0xCC})
+
+	cmdCode := msg[2]
+	switch cmdCode {
+	case code.Join:
+		fmt.Println("Join")
+		break
+	case code.JoinAck:
+		fmt.Println("Join Ack")
+		break
+	default:
+		fmt.Println("Unkown: ", cmdCode)
+	}
 }
