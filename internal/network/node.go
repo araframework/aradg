@@ -170,10 +170,17 @@ func (node *Node) handleConnection(conn net.Conn) {
 	for {
 		n, err := conn.Read(buf[0:])
 		if err != nil {
-			if err == io.EOF {
-				log.Println("connection closed by remote")
+			if err != io.EOF {
+				log.Println("connection read err:", err)
+				// break loop if not an EOF err raised
+				break
 			}
-			break
+
+			log.Println("connection closed by remote")
+			if n == 0 {
+				// n == 0 with an EOF err means conn closed and no more data available
+				break
+			}
 		}
 
 		len += uint32(n)
