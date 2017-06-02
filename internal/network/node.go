@@ -2,17 +2,17 @@ package network
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"github.com/araframework/aradg/internal/consts"
+	"github.com/araframework/aradg/internal/consts/code"
 	"github.com/araframework/aradg/internal/consts/status"
 	"github.com/araframework/aradg/internal/utils/conf"
+	"io"
 	"log"
 	"net"
 	"strconv"
 	"time"
-	"io"
-	"github.com/araframework/aradg/internal/consts"
-	"github.com/araframework/aradg/internal/consts/code"
-	"encoding/binary"
 )
 
 type Node struct {
@@ -241,11 +241,30 @@ func (node *Node) handleMessage(conn net.Conn, msg []byte) {
 	switch cmdCode {
 	case code.Join:
 		fmt.Println("Join")
+		node.handleJoin(conn, msg)
 		break
 	case code.JoinAck:
 		fmt.Println("Join Ack")
 		break
 	default:
 		fmt.Println("Unkown: ", cmdCode)
+	}
+}
+
+func (node *Node) handleJoin(conn net.Conn, msg []byte) {
+
+	remote := DecodeCmdJoin(msg)
+	switch node.me {
+	case status.New:
+		fmt.Println("I'm new too, lets check who is older")
+		if node.me.StartTime < remote.StartTime {
+			// todo
+		}
+		break
+	case status.Member:
+		fmt.Println("I'm member, I'll send you leader now")
+		break
+	case status.Leader:
+		fmt.Println("I'm leader, I'll sync cluster to you now")
 	}
 }
