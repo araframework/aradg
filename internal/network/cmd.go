@@ -51,7 +51,7 @@ func NewCmdJoin(me Member) []byte {
 	binary.LittleEndian.PutUint64(bStartTime, me.StartTime)
 	bodyBuf.Write(bStartTime) //8
 
-	bodyBuf.Write(me.Ip)     //16
+	bodyBuf.Write(me.Ip) //16
 
 	bPort := make([]byte, 2)
 	binary.LittleEndian.PutUint16(bPort, me.Port)
@@ -66,8 +66,24 @@ func NewCmdJoin(me Member) []byte {
 	return buff.Bytes()
 }
 
+func DecodeCmdJoin(msgs []byte) CmdJoin {
+	header := CmdHeader{msgs[:2], msgs[2]}
+
+	pos := 3 + 4 // body len is 4 bytes
+	status := msgs[pos]
+	pos += 1
+	startTime := binary.LittleEndian.Uint64(msgs[pos : pos+8])
+	pos += 8
+	ip := msgs[pos : pos+16]
+	pos += 16
+	port := binary.LittleEndian.Uint16(msgs[pos : pos+2])
+	member := Member{status, startTime, ip, port}
+
+	return CmdJoin{header, member}
+}
+
 // --- CmdJoin end-------------
 
 func Code(code byte) byte {
-return 0
+	return 0
 }
